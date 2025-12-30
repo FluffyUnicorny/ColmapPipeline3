@@ -1,0 +1,12 @@
+<MeshLabProject>
+    <MeshGroup>
+        <MLMesh label="scan1.ply" filename="scan1.ply">
+            <MLMatrix44>
+1 -1.49012e-08 -1.49012e-08 -0.0440822 
+1.49012e-08 1 1.78814e-07 0.106912 
+1.49012e-08 -1.78814e-07 1 0.0895982 
+0 0 0 1 
+</MLMatrix44>
+        </MLMesh>
+    </MeshGroup>
+</MeshLabProject>

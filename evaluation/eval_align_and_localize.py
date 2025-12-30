@@ -1,26 +1,26 @@
 def evaluate_alignment(
-    estimated_points_file=None,
-    gt_ply_file="C:/project/VisionPipeline/data/dataset_kicker/ground_truth_dslr/scene.ply",
-    out_dir="C:/project/VisionPipeline/evaluation/results",
+    estimated_points_file,
+    gt_ply_file,
+    out_dir,
     voxel_size=0.05,
     icp_threshold=0.2,
 ):
     """
     Evaluate alignment of estimated 3D points against GT point cloud using ICP.
-    Supports:
-      - .npy (Nx3)
-      - COLMAP sparse folder (points3D.bin)
-    Default estimated_points_file uses sfm/colmap_output/sparse/0
+
+    - estimated_points_file:
+        - COLMAP sparse folder (points3D.bin) OR
+        - .npy file (Nx3)
+    - gt_ply_file:
+        - Ground-truth point cloud (.ply) in metric scale (meters)
+
+    Output errors are reported in meters (with centimeters for readability).
     """
     import numpy as np
     import open3d as o3d
     from pathlib import Path
 
-    if estimated_points_file is None:
-        estimated_points_file = Path("C:/project/VisionPipeline/sfm/colmap_output/sparse/0")
-    else:
-        estimated_points_file = Path(estimated_points_file)
-
+    estimated_points_file = Path(estimated_points_file)
     gt_ply_file = Path(gt_ply_file)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -29,15 +29,12 @@ def evaluate_alignment(
     # Load estimated 3D points
     # -----------------------------
     if estimated_points_file.is_dir():
-        # 👉 COLMAP sparse directory
         from colmap_utils.read_write_model import read_model
 
         print(f"[INFO] Loading COLMAP sparse from {estimated_points_file}")
         _, _, points3D = read_model(str(estimated_points_file), ext=".bin")
         points_est = np.array([p.xyz for p in points3D.values()], dtype=np.float32)
-
     else:
-        # 👉 .npy file
         print(f"[INFO] Loading estimated points from {estimated_points_file}")
         points_est = np.load(estimated_points_file)
 
@@ -50,7 +47,7 @@ def evaluate_alignment(
     print(f"[INFO] Estimated points: {points_est.shape[0]}")
 
     # -----------------------------
-    # Load GT point cloud
+    # Load GT point cloud (metric)
     # -----------------------------
     if not gt_ply_file.exists():
         raise FileNotFoundError(f"GT PLY not found: {gt_ply_file}")
@@ -65,7 +62,7 @@ def evaluate_alignment(
     pc_gt_ds = pc_gt.voxel_down_sample(voxel_size)
 
     # -----------------------------
-    # ICP alignment
+    # ICP alignment (includes scale)
     # -----------------------------
     reg = o3d.pipelines.registration.registration_icp(
         pc_est_ds,
@@ -75,33 +72,42 @@ def evaluate_alignment(
         o3d.pipelines.registration.TransformationEstimationPointToPoint()
     )
 
-    T = reg.transformation
-    pc_est.transform(T)
+    pc_est.transform(reg.transformation)
 
     # -----------------------------
-    # Distance evaluation
+    # Distance evaluation (meters)
     # -----------------------------
     distances = np.asarray(pc_est.compute_point_cloud_distance(pc_gt))
-    rmse = float(np.sqrt(np.mean(distances ** 2)))
-    mean_err = float(np.mean(distances))
-    median_err = float(np.median(distances))
+
+    rmse_m = float(np.sqrt(np.mean(distances ** 2)))
+    mean_m = float(np.mean(distances))
+    median_m = float(np.median(distances))
+
+    # centimeters (for display only)
+    rmse_cm = rmse_m * 100.0
+    mean_cm = mean_m * 100.0
+    median_cm = median_m * 100.0
 
     # -----------------------------
     # Save results
     # -----------------------------
     np.save(out_dir / "distances.npy", distances)
+
     o3d.io.write_point_cloud(
         str(out_dir / "aligned_estimated_points.ply"), pc_est
     )
 
     with open(out_dir / "summary.txt", "w") as f:
-        f.write(f"Mean error (m): {mean_err:.4f}\n")
-        f.write(f"Median error (m): {median_err:.4f}\n")
-        f.write(f"RMSE (m): {rmse:.4f}\n")
+        f.write(f"Mean error   : {mean_m:.4f} m ({mean_cm:.2f} cm)\n")
+        f.write(f"Median error : {median_m:.4f} m ({median_cm:.2f} cm)\n")
+        f.write(f"RMSE         : {rmse_m:.4f} m ({rmse_cm:.2f} cm)\n")
 
-    print(f"[OK] Alignment evaluation finished")
-    print(f"     Mean   : {mean_err*100:.2f} cm")
-    print(f"     Median : {median_err*100:.2f} cm")
-    print(f"     RMSE   : {rmse*100:.2f} cm")
+    # -----------------------------
+    # Console output
+    # -----------------------------
+    print("[OK] Alignment evaluation finished")
+    print(f"     Mean   : {mean_m:.4f} m ({mean_cm:.2f} cm)")
+    print(f"     Median : {median_m:.4f} m ({median_cm:.2f} cm)")
+    print(f"     RMSE   : {rmse_m:.4f} m ({rmse_cm:.2f} cm)")
 
-    return distances, mean_err, median_err, rmse
+    return distances, mean_m, median_m, rmse_m
